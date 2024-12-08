@@ -11,14 +11,9 @@ const HomeScreen = ({ navigation }) => {
     const fetchUserData = async () => {
       try {
         const user = await AsyncStorage.getItem('user');
-        console.log('Fetched user data:', user);
-
         if (user) {
           const parsedUser = JSON.parse(user);
-          console.log('Parsed user data:', parsedUser);
-          setRole(parsedUser.role);
-        } else {
-          console.log('No user found in AsyncStorage');
+          setRole(parsedUser.role); // Set role for conditionally rendering buttons
         }
       } catch (error) {
         console.error('Error fetching user from AsyncStorage:', error);
@@ -49,7 +44,6 @@ const HomeScreen = ({ navigation }) => {
             title="Add New Employee" 
             onPress={() => navigation.navigate('AddEmployee')} 
           />
-          <Button title="Fire Employee" onPress={() => navigation.navigate('FireEmployeeScreen')} />
         </View>
       ) : (
         <FlatList

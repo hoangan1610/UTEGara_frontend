@@ -46,10 +46,10 @@ const AccountScreen = ({ navigation, route, onLogout }) => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Name: {user.name}</Text>
+      
       <Text style={styles.text}>Email: {user.email}</Text>
       <Text style={styles.text}>Role: {user.role}</Text>
-      <Button title="Edit Info" onPress={handleEdit} />
+      
       <Button title="Logout" onPress={handleLogout} color="red" />
     </View>
   );

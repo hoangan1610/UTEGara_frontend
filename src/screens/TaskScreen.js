@@ -4,140 +4,271 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import { useFocusEffect } from '@react-navigation/native';
+import BASE_URL from '../api/config';
 
 const TaskScreen = ({ navigation }) => {
   const [tasks, setTasks] = useState([]);
   const [userRole, setUserRole] = useState(null);
-  const [userId, setUserId] = useState(null);
 
+  // Fetch user role when component mounts
   useEffect(() => {
     const fetchUserRole = async () => {
       const userData = await AsyncStorage.getItem('user');
       if (userData) {
-        const { role, id } = JSON.parse(userData);
+        const { role } = JSON.parse(userData);
         setUserRole(role);
-        setUserId(id);
       }
     };
     fetchUserRole();
   }, []);
 
+  const isAdminOrSuperAdmin = userRole === 'admin' || userRole === 'SUPER_ADMIN';
+
   const fetchTasks = async () => {
     try {
-      const endpoint = userRole === 'admin'
-        ? 'http://192.168.1.6:5000/api/tasks'
-        : `http://192.168.1.6:5000/api/tasks/employee/${userId}`;
-      const response = await axios.get(endpoint);
-      setTasks(response.data);
+      const response = await axios.get(`${BASE_URL}/tasks`, {
+        headers: { Authorization: `Bearer ${await AsyncStorage.getItem('token')}` },
+      });
+      setTasks(response.data.tasks);
     } catch (error) {
-      console.error("Error fetching tasks:", error); // Enhanced logging
+      console.error('Error fetching tasks:', error.response?.data?.message || error.message);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
       fetchTasks();
-    }, [userRole, userId])
+    }, [userRole])
   );
 
-  const handleAddTask = () => navigation.navigate('AddTask');
-  const handleEditTask = (taskId) => navigation.navigate('EditTask', { taskId });
-  
+  const handleAddTask = () => {
+    navigation.navigate('AddTask', {
+      onGoBack: fetchTasks,
+    });
+  };
+
+  const handleEditTask = (taskId) => {
+    navigation.navigate('EditTask', {
+      taskId,
+      onGoBack: fetchTasks,
+    });
+  };
+
   const handleDeleteTask = async (taskId) => {
     try {
-      await axios.delete(`http://192.168.1.6:5000/api/tasks/${taskId}`);
+      await axios.delete(`${BASE_URL}/tasks/${taskId}`, {
+        headers: { Authorization: `Bearer ${await AsyncStorage.getItem('token')}` },
+      });
       fetchTasks();
     } catch (error) {
-      console.error("Error deleting task:", error); // Added logging
+      console.error('Error deleting task:', error.response?.data?.message || error.message);
     }
   };
 
-  const handleViewDetails = (taskId) => navigation.navigate('TaskDetails', { taskId });
-  
   const handleChangeStatus = async (task) => {
     try {
-      const updatedStatus = task.status === 'Chưa xử lý' ? 'Đang thực hiện' : 'Chờ xác nhận hoàn thành';
-      await axios.put(`http://192.168.1.6:5000/api/tasks/${task.id}/status`, { status: updatedStatus });
-      fetchTasks();
+      const nextStatus =
+        task.status === 'pending' ? 'in_progress' : task.status === 'in_progress' ? 'awaiting_confirmation' : null;
+
+      if (nextStatus) {
+        await axios.put(
+          `${BASE_URL}/tasks/${task.id}`,
+          { status: nextStatus },
+          { headers: { Authorization: `Bearer ${await AsyncStorage.getItem('token')}` } }
+        );
+        fetchTasks();
+      }
     } catch (error) {
-      console.error("Error updating task status:", error); // Added logging
+      console.error('Error updating task status:', error.response?.data?.message || error.message);
     }
   };
 
   const handleConfirmCompletion = async (task) => {
     try {
-      await axios.put(`http://192.168.1.6:5000/api/tasks/${task.id}/status`, { status: 'Hoàn thành' });
+      await axios.put(
+        `${BASE_URL}/tasks/${task.id}`,
+        { status: 'completed' },
+        { headers: { Authorization: `Bearer ${await AsyncStorage.getItem('token')}` } }
+      );
       fetchTasks();
     } catch (error) {
-      console.error("Error confirming task completion:", error); // Added logging
+      console.error('Error confirming task completion:', error.response?.data?.message || error.message);
     }
   };
 
-  const renderAdminTaskItem = ({ item }) => (
-    <View style={[styles.taskContainer, item.status === 'Chờ xác nhận hoàn thành' ? styles.pendingTask : null]}>
-      <View style={styles.taskInfo}>
-        <Text style={styles.taskTitle}>{item.title}</Text>
-        <Text style={styles.assignedTo}>Assigned to: {item.employee.name}</Text>
-        <Text style={styles.taskStatus}>Status: {item.status}</Text>
-      </View>
-      <View style={styles.iconContainer}>
-        <TouchableOpacity onPress={() => handleEditTask(item.id)}>
-          <Icon name="edit" size={20} color="blue" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleDeleteTask(item.id)}>
-          <Icon name="delete" size={20} color="red" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => handleViewDetails(item.id)}>
-          <Icon name="info" size={20} color="green" />
-        </TouchableOpacity>
-        {item.status === 'Chờ xác nhận hoàn thành' && (
-          <TouchableOpacity onPress={() => handleConfirmCompletion(item)}>
-            <Icon name="check-circle" size={20} color="purple" />
+  const handleRejectTask = async (task) => {
+    try {
+      await axios.put(
+        `${BASE_URL}/tasks/${task.id}`,
+        { status: 'rejected' },
+        { headers: { Authorization: `Bearer ${await AsyncStorage.getItem('token')}` } }
+      );
+      fetchTasks();
+    } catch (error) {
+      console.error('Error rejecting task:', error.response?.data?.message || error.message);
+    }
+  };
+
+  const convertStatusToVietnamese = (status) => {
+    switch (status) {
+      case 'pending':
+        return 'CHỜ XÁC NHẬN';
+      case 'in_progress':
+        return 'ĐANG THỰC HIỆN';
+      case 'awaiting_confirmation':
+        return 'CHỜ XÁC NHẬN HOÀN THÀNH';
+      case 'completed':
+        return 'ĐÃ HOÀN THÀNH';
+      case 'rejected':
+        return 'ĐÃ TỪ CHỐI';
+      default:
+        return status;
+    }
+  };
+
+  const getStatusBackgroundColor = (status) => {
+    switch (status) {
+      case 'pending':
+        return '#fff3e0';
+      case 'in_progress':
+        return '#e3f2fd';
+      case 'awaiting_confirmation':
+        return '#fce4ec';
+      case 'completed':
+        return '#eeeeee';
+      case 'rejected':
+        return '#ffebee';
+      default:
+        return '#fff';
+    }
+  };
+
+  const calculateRemainingTime = (dueDate) => {
+    const now = new Date();
+    const deadline = new Date(dueDate);
+
+    if (isNaN(deadline.getTime())) {
+      return 0;
+    }
+
+    const diffTime = deadline - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  const handleTaskDetail = (taskId) => {
+    navigation.navigate('TaskDetail', { taskId });
+  };
+
+  const renderAdminTaskItem = ({ item }) => {
+    const remainingDays = calculateRemainingTime(item.deadline);
+    const remainingText = remainingDays > 0 ? `${remainingDays} ngày nữa` : 'Đã quá hạn';
+    const isUrgent = remainingDays <= 1;
+
+    return (
+      <TouchableOpacity
+        style={[styles.taskContainer, { backgroundColor: getStatusBackgroundColor(item.status) }]}
+        onPress={() => handleTaskDetail(item.id)}
+      >
+        <View style={styles.taskInfo}>
+          <Text style={styles.taskTitle}>{item.title}</Text>
+          <Text style={styles.assignedTo}>
+            Assigned to: {item.employee?.first_name} {item.employee?.last_name}
+          </Text>
+          <Text style={styles.taskStatus}>
+            Status: <Text style={{ fontWeight: 'bold' }}>{convertStatusToVietnamese(item.status)}</Text>
+          </Text>
+          {item.status === 'completed' && item.completed_at && (
+            <Text style={styles.remainingTime}>
+              Hoàn thành lúc: {new Date(item.completed_at).toLocaleString()}
+            </Text>
+          )}
+          {item.deadline && (
+            <Text
+              style={[styles.remainingTime, { fontWeight: isUrgent ? 'bold' : 'normal', color: isUrgent ? 'red' : 'black' }]}
+            >
+              Deadline: {remainingText}
+            </Text>
+          )}
+        </View>
+        <View style={styles.iconContainer}>
+          <TouchableOpacity onPress={() => handleEditTask(item.id)}>
+            <Icon name="edit" size={20} color="blue" />
           </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+          <TouchableOpacity onPress={() => handleDeleteTask(item.id)}>
+            <Icon name="delete" size={20} color="red" />
+          </TouchableOpacity>
+          {item.status === 'awaiting_confirmation' && (
+            <TouchableOpacity onPress={() => handleConfirmCompletion(item)}>
+              <Icon name="check-circle" size={30} color="purple" />
+            </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
-  const renderEmployeeTaskItem = ({ item }) => (
-    <View style={styles.taskContainer}>
-      <View style={styles.taskInfo}>
-        <Text style={styles.taskTitle}>{item.title}</Text>
-        <Text style={styles.taskStatus}>Status: {item.status}</Text>
-      </View>
-      {item.status === 'Chưa xử lý' && (
-        <TouchableOpacity onPress={() => handleChangeStatus(item)}>
-          <Icon name="check-circle" size={20} color="purple" />
-        </TouchableOpacity>
-      )}
-      {item.status === 'Đang thực hiện' && (
-        <TouchableOpacity onPress={() => handleChangeStatus(item)}>
-          <Icon name="done" size={20} color="orange" />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  const renderEmployeeTaskItem = ({ item }) => {
+    const remainingDays = calculateRemainingTime(item.deadline);
+    const remainingText = remainingDays > 0 ? `${remainingDays} ngày nữa` : 'Đã quá hạn';
+    const isUrgent = remainingDays <= 1;
 
-  // Sort tasks: put pending confirmation tasks at the top
-  const sortedTasks = tasks.sort((a, b) => {
-    if (a.status === 'Chờ xác nhận hoàn thành') return -1;
-    if (b.status === 'Chờ xác nhận hoàn thành') return 1;
-    return 0;
-  });
+    return (
+      <TouchableOpacity
+        style={[styles.taskContainer, { backgroundColor: getStatusBackgroundColor(item.status) }]}
+        onPress={() => handleTaskDetail(item.id)}
+      >
+        <View style={styles.taskInfo}>
+          <Text style={styles.taskTitle}>{item.title}</Text>
+          <Text style={styles.assignedTo}>
+            Assigned to: {item.employee?.first_name} {item.employee?.last_name}
+          </Text>
+          <Text style={styles.taskStatus}>
+            Status: <Text style={{ fontWeight: 'bold' }}>{convertStatusToVietnamese(item.status)}</Text>
+          </Text>
+          {item.status === 'completed' && item.completed_at && (
+            <Text style={styles.remainingTime}>
+              Hoàn thành lúc: {new Date(item.completed_at).toLocaleString()}
+            </Text>
+          )}
+          {item.deadline && (
+            <Text
+              style={[styles.remainingTime, { fontWeight: isUrgent ? 'bold' : 'normal', color: isUrgent ? 'red' : 'black' }]}
+            >
+              Deadline: {remainingText}
+            </Text>
+          )}
+        </View>
+        <View style={styles.iconContainer}>
+          {(item.status === 'pending' || item.status === 'in_progress') && (
+            <>
+              <TouchableOpacity onPress={() => handleChangeStatus(item)}>
+                <Icon name="check-circle" size={30} color="orange" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => handleRejectTask(item)}>
+                <Icon name="cancel" size={30} color="red" />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const sortedTasks = tasks.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   return (
     <View style={styles.container}>
-      <Text style={styles.headerText}>Task List</Text>
+      {isAdminOrSuperAdmin && (
+        <TouchableOpacity onPress={handleAddTask} style={styles.addTaskButton}>
+          <Text style={styles.addTaskButtonText}>+ Add Task</Text>
+        </TouchableOpacity>
+      )}
       <FlatList
         data={sortedTasks}
         keyExtractor={(item) => item.id.toString()}
-        renderItem={userRole === 'admin' ? renderAdminTaskItem : renderEmployeeTaskItem}
+        renderItem={isAdminOrSuperAdmin ? renderAdminTaskItem : renderEmployeeTaskItem}
       />
-      {userRole === 'admin' && (
-        <TouchableOpacity style={styles.addButton} onPress={handleAddTask}>
-          <Icon name="add-circle" size={50} color="green" />
-        </TouchableOpacity>
-      )}
     </View>
   );
 };
@@ -145,38 +276,14 @@ const TaskScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 20,
-    backgroundColor: '#f5f5f5',
-  },
-  headerText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginVertical: 15,
-    textAlign: 'center',
-    color: '#333',
-  },
-  addButton: {
-    position: 'absolute',
-    bottom: 20,
-    right: 20,
-    elevation: 5,
+    padding: 10,
   },
   taskContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 15,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    marginBottom: 10,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 3,
-  },
-  pendingTask: {
-    backgroundColor: '#ffebee', // Light red background for pending tasks
+    padding: 10,
+    borderRadius: 8,
+    marginVertical: 5,
   },
   taskInfo: {
     flex: 1,
@@ -184,7 +291,6 @@ const styles = StyleSheet.create({
   taskTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#333',
   },
   assignedTo: {
     fontSize: 14,
@@ -192,14 +298,27 @@ const styles = StyleSheet.create({
   },
   taskStatus: {
     fontSize: 14,
-    color: '#666',
-    marginTop: 5,
+    color: '#333',
+  },
+  remainingTime: {
+    fontSize: 12,
+    color: '#333',
   },
   iconContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    width: 100,
-    justifyContent: 'space-around',
+  },
+  addTaskButton: {
+    backgroundColor: '#4caf50',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  addTaskButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
 
